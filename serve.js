@@ -17,29 +17,38 @@ app.listen(port, () => {
     console.log(`started server on port ${port}.`);
 });
 
+const peerConnectionsIdList = [];
+
 wss.on('connection', (ws) => {
     ws.on('message', (msg) => {
         const json = Buffer.from(msg).toString();
         const data = JSON.parse(json);
         console.log('received message ', data);
 
-        if (data.event == 'connection') {
-            // ws.send('hello ' + data.user);
-
-            // wss.clients.forEach((client) => {
-                // if (client !== ws && client.readyState === WebSocket.OPEN) {
-                // client.send('hello ' + data.user);
-                // }
-            // })
-        } else {
-            wss.clients.forEach((client) => {
-                // if (client !== ws) {
-                //     client.send(data);
-                // }
-                client.send(json);
-            })
-        }
+        wss.clients.forEach((client) => {
+            client.send(json);
+        })
+    
     });
 
-    ws.send('response');
+    const uuid = crypto.randomUUID();
+    const join = {
+        init: true, 
+        id: uuid, 
+        peerConnectionsIdList: peerConnectionsIdList,
+    };
+    
+    ws.send(JSON.stringify(join));
+    peerConnectionsIdList.push(uuid);
+    ws.id = uuid;
+
+    // console.log(ws);
 });
+
+// wss.on('close', (ws) => {
+// 
+//     console.log('deleted idx ' + ws.id);
+//     const idx = peerConnectionsIdList.findIndex(ws.id);
+//     delete peerConnectionsIdList[idx];
+//     console.log(peerConnectionsIdList);
+// });

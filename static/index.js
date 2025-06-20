@@ -1,17 +1,22 @@
 let uuid;
 let stream;
 let ws;
+let peerConnectionsIdList = [];
+const peerConnectionsList = {};
 
 document.addEventListener('DOMContentLoaded', () => {
-    uuid = self.crypto.randomUUID();
-    // alert('uuid: ' + uuid);
-
+    // uuid = self.crypto.randomUUID();
+    createWssConnection();
     const btn = document.createElement('button');
     btn.innerText = 'Start Stream';
     btn.addEventListener('click', () => startStream());
     document.querySelector('body').append(btn);
+});
 
-    createWssConnection();
+window.addEventListener('beforeunload', (e) => {
+    e.preventDefault();
+    ws.close();
+    return true;
 });
 
 const startStream = async () => {
@@ -26,40 +31,6 @@ const startStream = async () => {
     document.querySelector('button').remove();
 
     const peerConnection = new RTCPeerConnection({});
-    
-    peerConnection.addEventListener("icecandidateerror", (event) => {
-        alert('massive fucking error in icecandidateerror');
-        console.error('massive fucking error in icecandidateerror', event);
-    });
-
-    peerConnection.addEventListener('track', async (trackEvent) => {
-            const remoteStream = trackEvent.streams;
-            console.log('remoteStream');
-            console.log(remoteStream);
-            const video = addNewVideo('blah');
-            video.srcObject = remoteStream[0];
-        });
-
-    peerConnection.addEventListener('icecandidate', (event) => {
-        // alert('ice candidate?');
-        console.log('ice candidate?', event);
-
-        if (event.candidate) {
-            // @todo - work out intended recipient and include in the sent data
-            const iceCandidate = {
-                iceCandidate: event.candidate,
-                sender: uuid,
-            };
-            ws.send(JSON.stringify(iceCandidate));
-        }
-    });
-
-    await navigator.mediaDevices.getUserMedia({ video: true })
-        .then((strm) => {
-            strm.getTracks().forEach(track => {
-                peerConnection.addTrack(track, strm);
-            });
-        });
 
     ws.addEventListener('message', async (e) => {
         let data = JSON.parse(e.data);
@@ -67,31 +38,48 @@ const startStream = async () => {
         // @todo make the client NOT responsible for this
         // if (e.data.destination !== uuid) {
         if (data.sender === uuid) {
-            alert('not intended for me!');
+            console.log('not intended for me!');
             return;
         }
 
         console.log(data);
 
         if (data.answer) {
-            const remoteDescription = new RTCSessionDescription(data.answer);
-            await peerConnection.setRemoteDescription(remoteDescription);
+            //@todo lose this inner if
+            if (data.recipient === uuid) {
+                const remoteDescription = new RTCSessionDescription(data.answer);
+                // await peerConnection.setRemoteDescription(remoteDescription);
+                await peerConnectionsList[data.sender].setRemoteDescription(remoteDescription);
+            }
         }
 
         if (data.offer) {
-            peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-            const answerMsg = {
-                answer: answer,
-                sender: uuid,
-            };
-            ws.send(JSON.stringify(answerMsg));
+            // @todo lose this inner if 
+            if (data.recipient === uuid) {
+
+                if (!peerConnectionsList[data.sender]) {
+                    peerConnectionsList[data.sender] = await createPeerConnection();
+                }
+
+                peerConnectionsList[data.sender].setRemoteDescription(new RTCSessionDescription(data.offer));
+                const answer = await peerConnectionsList[data.sender].createAnswer();
+                await peerConnectionsList[data.sender].setLocalDescription(answer);
+
+                const answerMsg = {
+                    recipient: data.sender,
+                    answer: answer,
+                    sender: uuid,
+                };
+
+                ws.send(JSON.stringify(answerMsg));
+            }
         }
 
         if (data.iceCandidate) {
             try {
-                await peerConnection.addIceCandidate(data.iceCandidate);
+                // @todo work out how to ensure the recipient is correct
+                // await peerConnection.addIceCandidate(data.iceCandidate);
+                peerConnectionsList[data.sender].addIceCandidate(data.iceCandidate);
                 alert('candidate added');
             } catch (e) {
                 alert('Error adding received ice candidate: ' + data.iceCandidate);
@@ -99,14 +87,35 @@ const startStream = async () => {
         }
     });
 
-    const offer = await peerConnection.createOffer();
-    await peerConnection.setLocalDescription(offer);
+    // const offer = await peerConnection.createOffer();
+    // await peerConnection.setLocalDescription(offer);
 
-    const offerMsg = {
-        offer: offer,
-        sender: uuid,
-    };
-    ws.send(JSON.stringify(offerMsg));
+    // const offerMsg = {
+    //     offer: offer,
+    //     sender: uuid,
+    // };
+    // ws.send(JSON.stringify(offerMsg));
+
+    while (id = peerConnectionsIdList.pop()) {
+        if (undefined === id) {
+            return;
+        }
+
+        const connection = await createPeerConnection();
+
+        const offer = await connection.createOffer();
+        await connection.setLocalDescription(offer);
+
+        peerConnectionsList[id] = connection;
+
+        const offerMsg = {
+            recipient: id,
+            offer: offer,
+            sender: uuid,
+        };
+
+        ws.send(JSON.stringify(offerMsg));
+    }
 }
 
 const addNewVideo = (uuid) => {
@@ -125,14 +134,71 @@ const createWssConnection = () => {
     const port = 9998;
     ws = new WebSocket('ws://localhost:' + port);
     
-    ws.onopen = (e) => {
-        // alert('now open');
+    // ws.onopen = (e) => {
+        // let msg = { join: true, sender: uuid };
+        // ws.send(JSON.stringify(msg));
+    // };
 
-        let msg = {
-            'event': 'connection',
-            'user': uuid,
+    ws.addEventListener('message', (e) => {
+        // alert('msg');
+        console.log(e.data);
+
+        const data = JSON.parse(e.data);
+
+        if (data.init) {
+            uuid = data.id;
+            peerConnectionsIdList = data.peerConnectionsIdList;
+            let msg = { join: true, sender: uuid };
+            ws.send(JSON.stringify(msg));
         }
 
-        ws.send(JSON.stringify(msg));
-    }
+        if (data.join === true && data.sender !== uuid) {
+            alert('join');
+            console.log(e.data);
+            peerConnectionsIdList.push(data.sender);
+        }
+    });
 }
+
+const trackPeer = async (e) => {
+    const remoteStream = e.streams;
+    console.log('remoteStream');
+    console.log(remoteStream);
+    const video = addNewVideo('blah');
+    video.srcObject = remoteStream[0];
+}
+
+const iceCandidate = (e) => {
+    // alert('ice candidate?');
+    console.log('ice candidate?', e);
+
+    if (e.candidate) {
+        // @todo - work out intended recipient and include in the sent data
+        const iceCandidate = {
+            iceCandidate: e.candidate,
+            sender: uuid,
+        };
+        ws.send(JSON.stringify(iceCandidate));
+    }
+};
+
+const createPeerConnection = async () => {
+    const connection = new RTCPeerConnection({});
+
+    connection.addEventListener('track', trackPeer);
+    connection.addEventListener('icecandidate', iceCandidate);
+
+    connection.addEventListener("icecandidateerror", (event) => {
+        alert('massive fucking error in icecandidateerror');
+        console.error('massive fucking error in icecandidateerror', event);
+    });
+
+    await navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
+        stream.getTracks().forEach(track => {
+            connection.addTrack(track, stream);
+        });
+    });
+
+    return connection;
+}
+
