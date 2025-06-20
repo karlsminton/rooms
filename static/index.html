@@ -2,13 +2,22 @@
 <html>
     <head>
         <style>
-            video {
-                border: 1px solid #111;
+            #mount {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 15px;
+                justify-content: center;
+            }
+
+            #mount > video {
                 background: #111;
+                flex: 1 1;
+                max-width: 32%;
             }
         </style>
     </head>
     <body>
+        <section id="mount"></section>
         <script src="index.js"></script>
     </body>
 </html>

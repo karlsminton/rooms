@@ -5,19 +5,12 @@ let peerConnectionsIdList = [];
 const peerConnectionsList = {};
 
 document.addEventListener('DOMContentLoaded', () => {
-    // uuid = self.crypto.randomUUID();
     createWssConnection();
     const btn = document.createElement('button');
     btn.innerText = 'Start Stream';
     btn.addEventListener('click', () => startStream());
-    document.querySelector('body').append(btn);
+    document.getElementById('mount').append(btn);
 });
-
-// window.addEventListener('beforeunload', (e) => {
-//     e.preventDefault();
-//     ws.close();
-//     return true;
-// });
 
 const startStream = async () => {
     navigator.mediaDevices.getUserMedia({ video: true })
@@ -81,9 +74,8 @@ const startStream = async () => {
                 // @todo work out how to ensure the recipient is correct
                 // await peerConnection.addIceCandidate(data.iceCandidate);
                 peerConnectionsList[data.sender].addIceCandidate(data.iceCandidate);
-                alert('candidate added');
             } catch (e) {
-                alert('Error adding received ice candidate: ' + data.iceCandidate);
+                console.error('Error adding received ice candidate: ' + data.iceCandidate);
             }
         }
     });
@@ -122,32 +114,19 @@ const startStream = async () => {
 const addNewVideo = (uuid) => {
     const video = document.createElement('video');
     video.id = uuid;
-    video.width = 300;
-    video.height = 180;
     video.autoplay = true;
     video.muted = true;
 
-    // video.srcObject.onsourceended = handleStreamCloseOrFail
-    // video.srcObject.onsourceclose = handleStreamCloseOrFail
-    // video.srcObject.onremovetrack = handleStreamCloseOrFail
-
-    document.querySelector('body').prepend(video);
+    document.getElementById('mount').prepend(video);
 
     return video;
 }
-
-const handleStreamCloseOrFail = (e) => {
-    const id = e.currentTarget.getAttribute('id');
-    alert('closing ' + id);
-    document.getElementById(id).remove();
-};
 
 const createWssConnection = () => {
     const port = 9998;
     ws = new WebSocket('ws://localhost:' + port);
 
     ws.addEventListener('message', (e) => {
-        // alert('msg');
         console.log(e.data);
 
         const data = JSON.parse(e.data);
@@ -160,7 +139,6 @@ const createWssConnection = () => {
         }
 
         if (data.join === true && data.sender !== uuid) {
-            alert('join');
             console.log(e.data);
             peerConnectionsIdList.push(data.sender);
         }
@@ -180,7 +158,6 @@ const trackPeer = async (e, id) => {
 }
 
 const iceCandidate = (e) => {
-    // alert('ice candidate?');
     console.log('ice candidate?', e);
 
     if (e.candidate) {
@@ -200,15 +177,6 @@ const createPeerConnection = async (id) => {
         trackPeer(e, id);
     });
     connection.addEventListener('icecandidate', iceCandidate);
-
-    connection.addEventListener("icecandidateerror", (event) => {
-        alert('massive fucking error in icecandidateerror');
-        console.error('massive fucking error in icecandidateerror', event);
-    });
-
-    connection.onsourceended = (e) => {
-        alert('dun fucked up');
-    }
 
     // delete video element if disconnected
     connection.onconnectionstatechange = (e) => {
