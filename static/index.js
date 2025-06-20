@@ -13,11 +13,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelector('body').append(btn);
 });
 
-window.addEventListener('beforeunload', (e) => {
-    e.preventDefault();
-    ws.close();
-    return true;
-});
+// window.addEventListener('beforeunload', (e) => {
+//     e.preventDefault();
+//     ws.close();
+//     return true;
+// });
 
 const startStream = async () => {
     navigator.mediaDevices.getUserMedia({ video: true })
@@ -56,9 +56,10 @@ const startStream = async () => {
         if (data.offer) {
             // @todo lose this inner if 
             if (data.recipient === uuid) {
+                const sender = data.sender;
 
-                if (!peerConnectionsList[data.sender]) {
-                    peerConnectionsList[data.sender] = await createPeerConnection();
+                if (!peerConnectionsList[sender]) {
+                    peerConnectionsList[sender] = await createPeerConnection(sender);
                 }
 
                 peerConnectionsList[data.sender].setRemoteDescription(new RTCSessionDescription(data.offer));
@@ -101,7 +102,7 @@ const startStream = async () => {
             return;
         }
 
-        const connection = await createPeerConnection();
+        const connection = await createPeerConnection(id);
 
         const offer = await connection.createOffer();
         await connection.setLocalDescription(offer);
@@ -125,19 +126,25 @@ const addNewVideo = (uuid) => {
     video.height = 180;
     video.autoplay = true;
     video.muted = true;
+
+    // video.srcObject.onsourceended = handleStreamCloseOrFail
+    // video.srcObject.onsourceclose = handleStreamCloseOrFail
+    // video.srcObject.onremovetrack = handleStreamCloseOrFail
+
     document.querySelector('body').prepend(video);
 
     return video;
 }
 
+const handleStreamCloseOrFail = (e) => {
+    const id = e.currentTarget.getAttribute('id');
+    alert('closing ' + id);
+    document.getElementById(id).remove();
+};
+
 const createWssConnection = () => {
     const port = 9998;
     ws = new WebSocket('ws://localhost:' + port);
-    
-    // ws.onopen = (e) => {
-        // let msg = { join: true, sender: uuid };
-        // ws.send(JSON.stringify(msg));
-    // };
 
     ws.addEventListener('message', (e) => {
         // alert('msg');
@@ -160,12 +167,16 @@ const createWssConnection = () => {
     });
 }
 
-const trackPeer = async (e) => {
+const trackPeer = async (e, id) => {
     const remoteStream = e.streams;
     console.log('remoteStream');
     console.log(remoteStream);
-    const video = addNewVideo('blah');
+    const video = addNewVideo(id);
     video.srcObject = remoteStream[0];
+
+    video.srcObject.onsourceended = handleStreamCloseOrFail
+    video.srcObject.onsourceclose = handleStreamCloseOrFail
+    video.srcObject.onremovetrack = handleStreamCloseOrFail
 }
 
 const iceCandidate = (e) => {
@@ -182,16 +193,32 @@ const iceCandidate = (e) => {
     }
 };
 
-const createPeerConnection = async () => {
+const createPeerConnection = async (id) => {
     const connection = new RTCPeerConnection({});
 
-    connection.addEventListener('track', trackPeer);
+    connection.addEventListener('track', (e) => {
+        trackPeer(e, id);
+    });
     connection.addEventListener('icecandidate', iceCandidate);
 
     connection.addEventListener("icecandidateerror", (event) => {
         alert('massive fucking error in icecandidateerror');
         console.error('massive fucking error in icecandidateerror', event);
     });
+
+    connection.onsourceended = (e) => {
+        alert('dun fucked up');
+    }
+
+    // delete video element if disconnected
+    connection.onconnectionstatechange = (e) => {
+        if (e.currentTarget.iceConnectionState === 'disconnected') {
+            const key = Object.keys(peerConnectionsList).find((key) => {
+                return peerConnectionsList[key] === e.currentTarget;
+            });
+            document.getElementById(key).remove();
+        }
+    }
 
     await navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
         stream.getTracks().forEach(track => {
